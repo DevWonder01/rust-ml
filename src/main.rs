@@ -1,69 +1,83 @@
-extern crate csv;
-extern crate ndarray;
-extern crate serde;
-extern crate smartcore;
+use smartcore::linalg::basic::arrays::Array;
+// DenseMatrix definition
+use smartcore::linalg::basic::matrix::DenseMatrix;
+// KNNClassifier
+use smartcore::neighbors::knn_classifier::*;
+// Various distance metrics
+use smartcore::metrics::distance::*;
+use serde::{Deserialize, Serialize};
 
-use csv::ReaderBuilder;
-use ndarray::prelude::*;
-use serde::Deserialize;
-use smartcore::linalg::naive::dense_matrix::DenseMatrix;
-use smartcore::naive_bayes::gaussian::GaussianNB;
+use std::error::Error;
+use std::fs::File;
+use std::io::{self, BufReader};
+use std::path::Path;
+use csv::{Reader, StringRecord};
 use smartcore::metrics::accuracy;
-use std::collections::HashMap;
 
-#[derive(Debug, Deserialize)]
+
+#[derive(Deserialize,Serialize,Debug,Clone)]
 struct Email {
-    label: String,
-    text: String,
+    spam : String,
+    real : String
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load the dataset
-    let mut rdr = ReaderBuilder::new().from_path("emails.csv")?;
-    let emails: Vec<Email> = rdr.deserialize().collect::<Result<_, _>>()?;
+fn count_special_chars(s: &str) -> usize {
+    s.chars().filter(|c| !c.is_alphanumeric()).count()
+}
+fn process_data() ->Result<(DenseMatrix<f64>, Vec<i32>), Box<dyn Error>>{
 
-    // Preprocess the data
-    let (features, labels) = preprocess_data(&emails);
+    let filename = "public/spam.csv";
 
-    // Convert to DenseMatrix
-    let features_matrix = DenseMatrix::from_array(features.shape()[0], features.shape()[1], features.as_slice().unwrap());
+    let file = File::open(filename)?;
+    let mut rdr = csv::Reader::from_reader(file);
 
-    // Train the model
-    let model = GaussianNB::fit(&features_matrix, &labels, Default::default()).unwrap();
+    let mut data: Vec<f64> = Vec::new();
+    let mut labels: Vec<i32> = Vec::new();
+    let mut rows = 0;
 
-    // Evaluate the model
-    let predictions = model.predict(&features_matrix).unwrap();
-    let accuracy = accuracy(&labels, &predictions);
-    println!("Model accuracy: {:.2}%", accuracy * 100.0);
+    for result in rdr.records(){
+        let record = result?;
+        let email: Email = record.deserialize(None)?;
+        println!("{:?}", email);
+
+        // features for spam email
+        data.push(email.spam.len() as f64);
+        data.push(count_special_chars(&email.spam) as f64);
+        labels.push(1.0 as i32);
+
+        // features for spam email
+        data.push(email.real.len() as f64);
+        data.push(count_special_chars(&email.real) as f64);
+        labels.push(0.0 as i32);
+
+        rows +=2;
+
+    }
+
+    let matrix = DenseMatrix::new(rows, 2, data,true);
+
+    println!("{:?}",matrix);
+    println!("{:?}",labels);
+    Ok((matrix, labels))
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let (matrix, labels) = process_data()?;
+
+    // Split data into training and testing sets (for simplicity, using all data for training)
+    let train_data = matrix.clone();
+    let train_labels = labels.clone();
+
+
+    // Train KNN classifier
+    let knn = KNNClassifier::fit(&train_data, &train_labels, Default::default())?;
+
+    // Predict on the training data
+    let predictions = knn.predict(&train_data)?;
+
+    // Calculate accuracy
+    let acc = accuracy(&train_labels, &predictions);
+    println!("Accuracy: {}", acc);
 
     Ok(())
-}
-
-fn preprocess_data(emails: &[Email]) -> (Array2<f64>, Vec<f64>) {
-    let mut word_counts: HashMap<String, usize> = HashMap::new();
-    let mut labels = Vec::new();
-    let mut data = Vec::new();
-
-    // Build the vocabulary
-    for email in emails {
-        for word in email.text.split_whitespace() {
-            let count = word_counts.entry(word.to_string()).or_insert(0);
-            *count += 1;
-        }
-    }
-
-    // Convert emails to feature vectors
-    for email in emails {
-        let mut features = vec![0.0; word_counts.len()];
-        for word in email.text.split_whitespace() {
-            if let Some(&index) = word_counts.get(word) {
-                features[index] += 1.0;
-            }
-        }
-        data.push(features);
-        labels.push(if email.label == "spam" { 1.0 } else { 0.0 });
-    }
-
-    let features = Array2::from_shape_vec((emails.len(), word_counts.len()), data.concat()).unwrap();
-    (features, labels)
 }
