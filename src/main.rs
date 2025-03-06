@@ -43,8 +43,8 @@ fn process_data() ->Result<(DenseMatrix<f64>, Vec<i32>), Box<dyn Error>>{
         // features for spam email
         data.push(email.spam.len() as f64);
         data.push(count_special_chars(&email.spam) as f64);
-        labels.push(1.0 as i32);
 
+        labels.push(1.0 as i32);
         // features for spam email
         data.push(email.real.len() as f64);
         data.push(count_special_chars(&email.real) as f64);

@@ -7,3 +7,4 @@ edition = "2021"
 smartcore = "0.3.2"
 serde = { version = "1.0.217", features = ["derive"] }
 csv = "1"
+bincode = "2.0.0-rc.3"
